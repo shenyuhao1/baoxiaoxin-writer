@@ -1,0 +1,4 @@
+KeyboardSim.exe
+res/app.res
+src/*.o
+*.o
