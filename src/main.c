@@ -302,6 +302,21 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         RegisterHotKey(hwnd, HOTKEY_START, MOD_CONTROL | MOD_ALT, 'V');
         return 0;
 
+    case WM_ERASEBKGND: {
+        HDC hdc = (HDC)wParam;
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        FillRect(hdc, &rc, g_ui.hbrBg);
+        return 1;
+    }
+
+    case WM_DRAWITEM:
+        return UI_OnDrawItem(&g_ui, wParam, lParam);
+
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLOREDIT:
+        return UI_OnCtlColor(&g_ui, hwnd, msg, wParam, lParam);
+
     case WM_SIZE:
         UI_Layout(&g_ui, LOWORD(lParam), HIWORD(lParam));
         UI_ApplyWindowStyling(hwnd, g_cfg.darkMode);
