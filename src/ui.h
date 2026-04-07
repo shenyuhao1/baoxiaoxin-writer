@@ -47,6 +47,7 @@ typedef struct {
     HWND hwndStaticInterval;
     HWND hwndStaticPreset;
     HWND hwndStaticChars;
+    HWND hwndChkTopmost;
 
     HFONT hFontUI;
     HFONT hFontEdit;

@@ -300,6 +300,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         SendMessageW(g_ui.hwndTrackbar, TBM_SETPOS, TRUE, g_cfg.delayMs);
         UI_SetPresetSelection(&g_ui, g_cfg.delayMs);
         RegisterHotKey(hwnd, HOTKEY_START, MOD_CONTROL | MOD_ALT, 'V');
+        SendMessageW(g_ui.hwndChkTopmost, BM_SETCHECK,
+            g_cfg.alwaysOnTop ? BST_CHECKED : BST_UNCHECKED, 0);
+        if (g_cfg.alwaysOnTop)
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         return 0;
 
     case WM_ERASEBKGND: {
@@ -341,6 +345,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if (id == IDC_BTN_START)   { StartTyping();  return 0; }
         if (id == IDC_BTN_PAUSE)   { OnBtnPause();   return 0; }
         if (id == IDC_BTN_STOP)    { OnBtnStop();    return 0; }
+        if (id == IDC_CHK_TOPMOST && code == BN_CLICKED) {
+            BOOL checked = (SendMessageW(g_ui.hwndChkTopmost, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            g_cfg.alwaysOnTop = checked;
+            SetWindowPos(hwnd,
+                checked ? HWND_TOPMOST : HWND_NOTOPMOST,
+                0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            return 0;
+        }
 
         if (id == IDC_COMBO_PRESET && code == CBN_SELCHANGE) {
             OnPresetChange();

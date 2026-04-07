@@ -1,3 +1,5 @@
+#define _WIN32_WINNT 0x0601
+#define _WIN32_IE    0x0600
 #include "ui.h"
 #include "resource.h"
 #include <commctrl.h>
@@ -192,6 +194,10 @@ void UI_Create(HWND hwndParent, AppUI *ui)
     // 字符计数 + 状态栏
     ui->hwndStaticChars = MakeStatic(hwndParent, L"0 / 0 字符", IDC_STATIC_CHARS, ui->hFontUI);
     ui->hwndStatus      = MakeStatic(hwndParent, L"就绪",        IDC_STATUS,       ui->hFontUI);
+    ui->hwndChkTopmost  = CreateWindowExW(0, L"BUTTON", L"窗口置顶",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        0, 0, 0, 0, hwndParent, (HMENU)IDC_CHK_TOPMOST, NULL, NULL);
+    SendMessageW(ui->hwndChkTopmost, WM_SETFONT, (WPARAM)ui->hFontUI, TRUE);
 
     UI_SetState(ui, STATE_IDLE);
 }
@@ -248,9 +254,13 @@ void UI_Layout(AppUI *ui, int cx, int cy)
     SetWindowPos(ui->hwndProgress, NULL,
         0, bottomY,
         cx, progressH, SWP_NOZORDER);
+    int chkW = 90;
     SetWindowPos(ui->hwndStatus, NULL,
         pad, bottomY + progressH + pad,
-        cx - pad * 2, statusH, SWP_NOZORDER);
+        cx - pad * 3 - chkW, statusH, SWP_NOZORDER);
+    SetWindowPos(ui->hwndChkTopmost, NULL,
+        cx - pad - chkW, bottomY + progressH + pad,
+        chkW, statusH, SWP_NOZORDER);
 }
 
 void UI_SetState(AppUI *ui, int state)

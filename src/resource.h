@@ -15,6 +15,7 @@
 #define IDC_STATIC_INTERVAL 1012
 #define IDC_STATIC_PRESET   1013
 #define IDC_STATIC_CHARS    1014
+#define IDC_CHK_TOPMOST     1015
 
 // ── 速度预设（毫秒/字符）────────────────────────────────
 #define SPEED_SLOW    300

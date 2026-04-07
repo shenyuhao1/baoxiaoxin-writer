@@ -4,6 +4,7 @@
 typedef struct {
     int      delayMs;               // 字符间隔（毫秒），默认80
     BOOL     darkMode;              // 暗黑模式
+    BOOL     alwaysOnTop;           // 窗口置顶
     wchar_t  lastDir[MAX_PATH];     // 上次打开文件的目录
 } AppConfig;
 
