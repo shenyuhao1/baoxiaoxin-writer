@@ -2,7 +2,7 @@
 setlocal
 
 set CC=gcc
-set CFLAGS=-Wall -O2 -municode -DUNICODE -D_UNICODE -I src
+set CFLAGS=-Wall -O2 -DUNICODE -D_UNICODE -I src
 set LDFLAGS=-mwindows -lcomctl32 -lcomdlg32 -luxtheme -lshell32 -luser32 -lgdi32 -lkernel32
 
 echo [1/2] Compiling resources...

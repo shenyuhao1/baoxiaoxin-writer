@@ -1,0 +1,62 @@
+快速编译说明
+================
+
+当前环境
+--------
+- 编译器：MinGW GCC
+- 资源编译：windres
+- 平台：Windows
+
+注意事项
+--------
+这个项目当前不要使用 `-municode`。
+原因：你现在的 GCC/MinGW 环境不支持这个参数，会报错：
+`gcc: error: unrecognized command line option '-municode'`
+
+而且本项目入口是 `WinMain`，不需要这个参数也能正常编译运行。
+
+推荐的快速编译方法
+------------------
+在项目根目录执行下面两条命令：
+
+1. 编译资源文件：
+   windres res/app.rc -O coff -o res/app.res
+
+2. 编译主程序：
+   gcc -Wall -O2 -DUNICODE -D_UNICODE -I src src/main.c src/ui.c src/worker.c src/config.c res/app.res -o KeyboardSim.exe -mwindows -lcomctl32 -lcomdlg32 -luxtheme -lshell32 -luser32 -lgdi32 -lkernel32
+
+如果编译成功，会生成：
+- KeyboardSim.exe
+
+一条命令快速编译
+----------------
+如果你已经先执行过资源编译，也可以只执行：
+
+gcc -Wall -O2 -DUNICODE -D_UNICODE -I src src/main.c src/ui.c src/worker.c src/config.c res/app.res -o KeyboardSim.exe -mwindows -lcomctl32 -lcomdlg32 -luxtheme -lshell32 -luser32 -lgdi32 -lkernel32
+
+建议修改 build.bat
+------------------
+你当前的 `build.bat` 里有这行：
+
+`set CFLAGS=-Wall -O2 -municode -DUNICODE -D_UNICODE -I src`
+
+建议改成：
+
+`set CFLAGS=-Wall -O2 -DUNICODE -D_UNICODE -I src`
+
+改完以后，直接运行：
+
+build.bat
+
+常见问题
+--------
+1. `make: command not found`
+   - 说明当前环境没有安装 make
+   - 这个项目可以直接用 `build.bat` 或上面的 gcc 命令，不依赖 make
+
+2. `-municode` 不被识别
+   - 去掉 `-municode`
+
+3. `_WIN32_WINNT redefined`
+   - 这是宏重复定义警告
+   - 一般不影响编译，但建议避免在源码里重复定义相同宏
