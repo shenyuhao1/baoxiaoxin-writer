@@ -39,6 +39,7 @@ typedef struct {
     HWND hwndBtnStart;
     HWND hwndBtnPause;
     HWND hwndBtnStop;
+    HWND hwndBtnDatabase;
     HWND hwndTrackbar;
     HWND hwndEditInterval;
     HWND hwndProgress;

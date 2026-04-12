@@ -14,6 +14,8 @@
 #include "config.h"
 #include "ui.h"
 #include "worker.h"
+#include "database.h"
+#include "qa_ui.h"
 
 // ── 全局状态 ─────────────────────────────────────────────
 static AppUI     g_ui;
@@ -24,10 +26,99 @@ static int       g_state = STATE_IDLE;
 static WorkerParams *g_worker = NULL;
 static HANDLE        g_hThread = NULL;
 
+static DbContext     g_dbCtx;
+
 // 防止 Trackbar ↔ EditInterval 互相触发
 static BOOL g_syncingInterval = FALSE;
 
 // ── 辅助函数 ─────────────────────────────────────────────
+
+static wchar_t* GetClipboardText(void)
+{
+    if (!OpenClipboard(NULL)) {
+        return NULL;
+    }
+
+    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+    if (!hData) {
+        CloseClipboard();
+        return NULL;
+    }
+
+    wchar_t *text = NULL;
+    wchar_t *p = (wchar_t *)GlobalLock(hData);
+    if (p) {
+        size_t len = wcslen(p);
+        text = (wchar_t *)malloc((len + 1) * sizeof(wchar_t));
+        if (text) {
+            wcscpy(text, p);
+        }
+        GlobalUnlock(hData);
+    }
+    CloseClipboard();
+    return text;
+}
+
+static void SearchFromClipboard(void)
+{
+    wchar_t *clipboardText = GetClipboardText();
+    if (!clipboardText) {
+        UI_SetStatus(&g_ui, L"无法读取剪切板！");
+        return;
+    }
+
+    // 去掉首尾空格
+    wchar_t *question = clipboardText;
+    while (*question && (*question == L' ' || *question == L'\t' || *question == L'\r' || *question == L'\n')) question++;
+    size_t len = wcslen(question);
+    while (len > 0 && (question[len-1] == L' ' || question[len-1] == L'\t' || question[len-1] == L'\r' || question[len-1] == L'\n')) {
+        question[len-1] = L'\0';
+        len--;
+    }
+
+    if (len == 0) {
+        free(clipboardText);
+        UI_SetStatus(&g_ui, L"剪切板内容为空！");
+        return;
+    }
+
+    wchar_t *answer = Db_Search(&g_dbCtx, question);
+    if (answer) {
+        SetWindowTextW(g_ui.hwndEditText, answer);
+        UI_SetStatus(&g_ui, L"已找到答案并粘贴到输入框！");
+        free(answer);
+    } else {
+        UI_SetStatus(&g_ui, L"暂未搜索到相应答案！");
+        MessageBoxW(g_ui.hwndMain, L"暂未搜索到相应答案！", L"提示", MB_ICONINFORMATION);
+    }
+
+    free(clipboardText);
+}
+
+static void OnBtnDatabase(void)
+{
+    // 如果数据库未初始化，先初始化
+    if (!Db_IsInitialized(&g_dbCtx)) {
+        // 构建数据库路径：%APPDATA%\KeyboardSim\qa_database.db
+        wchar_t appData[MAX_PATH];
+        SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appData);
+        wsprintfW(g_cfg.dbPath, L"%s\\KeyboardSim\\qa_database.db", appData);
+
+        // 确保目录存在
+        wchar_t dir[MAX_PATH];
+        wsprintfW(dir, L"%s\\KeyboardSim", appData);
+        CreateDirectoryW(dir, NULL);
+
+        int result = Db_Init(&g_dbCtx, g_cfg.dbPath);
+        if (result != DB_OK) {
+            MessageBoxW(g_ui.hwndMain, L"无法初始化数据库！", L"错误", MB_ICONERROR);
+            return;
+        }
+    }
+
+    // 显示题库管理对话框
+    QAManagerUI_Create(g_ui.hwndMain, &g_ui, &g_dbCtx, g_cfg.darkMode, g_ui.hFontUI, g_ui.hFontEdit);
+}
 
 static int GetCurrentDelay(void)
 {
@@ -300,6 +391,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         SendMessageW(g_ui.hwndTrackbar, TBM_SETPOS, TRUE, g_cfg.delayMs);
         UI_SetPresetSelection(&g_ui, g_cfg.delayMs);
         RegisterHotKey(hwnd, HOTKEY_START, MOD_CONTROL | MOD_ALT, 'V');
+        RegisterHotKey(hwnd, HOTKEY_SEARCH, MOD_CONTROL | MOD_ALT, 'B');
         SendMessageW(g_ui.hwndChkTopmost, BM_SETCHECK,
             g_cfg.alwaysOnTop ? BST_CHECKED : BST_UNCHECKED, 0);
         if (g_cfg.alwaysOnTop)
@@ -333,6 +425,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             } else if (g_state == STATE_READY) {
                 StartTyping();
             }
+        } else if (wParam == HOTKEY_SEARCH) {
+            SearchFromClipboard();
         }
         return 0;
 
@@ -345,6 +439,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if (id == IDC_BTN_START)   { StartTyping();  return 0; }
         if (id == IDC_BTN_PAUSE)   { OnBtnPause();   return 0; }
         if (id == IDC_BTN_STOP)    { OnBtnStop();    return 0; }
+        if (id == IDC_BTN_DATABASE) { OnBtnDatabase(); return 0; }
         if (id == IDC_CHK_TOPMOST && code == BN_CLICKED) {
             BOOL checked = (SendMessageW(g_ui.hwndChkTopmost, BM_GETCHECK, 0, 0) == BST_CHECKED);
             g_cfg.alwaysOnTop = checked;
@@ -381,6 +476,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
     case WM_DESTROY:
         UnregisterHotKey(hwnd, HOTKEY_START);
+        UnregisterHotKey(hwnd, HOTKEY_SEARCH);
         if (g_worker) {
             Worker_Stop(g_worker);
             if (g_hThread) {
@@ -389,6 +485,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             Worker_Free(g_worker);
         }
+        Db_Close(&g_dbCtx);
         Config_Save(&g_cfg, g_iniPath);
         UI_Destroy(&g_ui);
         PostQuitMessage(0);
@@ -417,6 +514,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     CreateDirectoryW(dir, NULL);
 
     Config_Load(&g_cfg, g_iniPath);
+
+    // 初始化数据库
+    if (g_cfg.dbPath[0] == L'\0') {
+        wsprintfW(g_cfg.dbPath, L"%s\\KeyboardSim\\qa_database.db", appData);
+    }
+    Db_Init(&g_dbCtx, g_cfg.dbPath);
 
     // 注册窗口类
     WNDCLASSEXW wc;

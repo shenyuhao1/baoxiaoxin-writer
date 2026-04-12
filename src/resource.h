@@ -16,6 +16,22 @@
 #define IDC_STATIC_PRESET   1013
 #define IDC_STATIC_CHARS    1014
 #define IDC_CHK_TOPMOST     1015
+#define IDC_BTN_DATABASE    1016  // 数据库功能按钮
+
+// ── 题库管理对话框控件 ID ──────────────────────────────────
+#define IDD_QA_MANAGER       101
+#define IDC_TAB_QA_MANAGER   102
+#define IDC_RADIO_BATCH      103
+#define IDC_RADIO_SINGLE     104
+#define IDC_EDIT_BATCH       105
+#define IDC_EDIT_QUESTION    106
+#define IDC_EDIT_ANSWER      107
+#define IDC_BTN_ADD_SINGLE   108
+#define IDC_BTN_IMPORT       109
+#define IDC_LIST_QUESTIONS   110
+#define IDC_BTN_DELETE       111
+#define IDC_BTN_CLOSE        112
+#define IDC_STATIC_STATUS    113
 
 // ── 速度预设（毫秒/字符）────────────────────────────────
 #define SPEED_SLOW    300
@@ -29,6 +45,7 @@
 
 // ── 全局热键 ID ──────────────────────────────────────────
 #define HOTKEY_START    0xBEEF
+#define HOTKEY_SEARCH   0xBEE0
 
 // ── 自定义窗口消息 ───────────────────────────────────────
 // wParam = 已输入字符数, lParam = 总字符数

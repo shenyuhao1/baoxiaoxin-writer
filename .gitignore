@@ -1,4 +1,36 @@
+# 编译产物
 KeyboardSim.exe
-res/app.res
-src/*.o
+*.exe
 *.o
+*.obj
+res/app.res
+
+# 配置文件（包含用户隐私）
+*.ini
+*.db
+*.db-shm
+*.db-wal
+
+# SQLite 文件（完全忽略）
+sqlite3.dll
+sql3/
+sql3-source/
+src/sqlite3.c
+src/sqlite3.h
+
+# IDE 临时文件
+*.suo
+*.user
+*.sln
+*.vcxproj
+*.vcxproj.filters
+.vs/
+.vscode/
+*.swp
+*~
+
+# 需求文档（可选，看你是否想公开）
+*.md
+*.txt
+需求.txt
+数据库功能需求.md

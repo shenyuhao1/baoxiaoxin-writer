@@ -13,6 +13,10 @@ void Config_Load(AppConfig *cfg, const wchar_t *iniPath)
                                                     0, iniPath);
     GetPrivateProfileStringW(L"Settings", L"LastDir", L"",
                              cfg->lastDir, MAX_PATH, iniPath);
+    GetPrivateProfileStringW(L"Settings", L"DbPath", L"",
+                             cfg->dbPath, MAX_PATH, iniPath);
+    cfg->searchHotkey = (UINT)GetPrivateProfileIntW(L"Settings", L"SearchHotkey",
+                                                    HOTKEY_SEARCH, iniPath);
 
     // 范围校正
     if (cfg->delayMs < INTERVAL_MIN) cfg->delayMs = INTERVAL_MIN;
@@ -34,4 +38,10 @@ void Config_Save(const AppConfig *cfg, const wchar_t *iniPath)
 
     WritePrivateProfileStringW(L"Settings", L"LastDir",
                                cfg->lastDir, iniPath);
+
+    WritePrivateProfileStringW(L"Settings", L"DbPath",
+                               cfg->dbPath, iniPath);
+
+    wsprintfW(buf, L"%u", cfg->searchHotkey);
+    WritePrivateProfileStringW(L"Settings", L"SearchHotkey", buf, iniPath);
 }

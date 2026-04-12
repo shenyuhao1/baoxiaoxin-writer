@@ -6,7 +6,7 @@ LDFLAGS = -mwindows \
           -lshell32 -luser32 -lgdi32 -lkernel32
 
 TARGET  = KeyboardSim.exe
-SRCS    = src/main.c src/ui.c src/worker.c src/config.c
+SRCS    = src/main.c src/ui.c src/worker.c src/config.c src/database.c src/qa_ui.c
 OBJS    = $(SRCS:.c=.o)
 RES     = res/app.res
 

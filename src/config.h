@@ -6,6 +6,8 @@ typedef struct {
     BOOL     darkMode;              // 暗黑模式
     BOOL     alwaysOnTop;           // 窗口置顶
     wchar_t  lastDir[MAX_PATH];     // 上次打开文件的目录
+    wchar_t  dbPath[MAX_PATH];      // 数据库文件路径
+    UINT     searchHotkey;          // 搜索热键（默认B）
 } AppConfig;
 
 void Config_Load(AppConfig *cfg, const wchar_t *iniPath);

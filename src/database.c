@@ -1,0 +1,502 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <wchar.h>
+#include <string.h>
+#include "database.h"
+
+// SQLite 函数指针全局变量
+static sqlite3_open_ptr         sqlite3_open;
+static sqlite3_open16_ptr       sqlite3_open16;
+static sqlite3_close_ptr        sqlite3_close;
+static sqlite3_exec_ptr         sqlite3_exec;
+static sqlite3_prepare_v2_ptr   sqlite3_prepare_v2;
+static sqlite3_step_ptr         sqlite3_step;
+static sqlite3_finalize_ptr     sqlite3_finalize;
+static sqlite3_column_text_ptr  sqlite3_column_text;
+static sqlite3_bind_text_ptr    sqlite3_bind_text;
+static sqlite3_last_insert_rowid_ptr sqlite3_last_insert_rowid;
+static void (*sqlite3_free_ptr)(void*);
+static int (*sqlite3_reset_ptr)(sqlite3_stmt*);
+
+// 辅助函数：显示错误消息
+static void ShowError(const wchar_t *msg)
+{
+    MessageBoxW(NULL, msg, L"数据库错误", MB_ICONERROR);
+}
+
+// 加载SQLite DLL和函数指针
+static int LoadSQLiteDLL(DbContext *ctx)
+{
+    wchar_t dllPath[MAX_PATH];
+    wchar_t debugMsg[512];
+
+    // 尝试多种路径查找sqlite3.dll
+    const wchar_t *paths[] = {
+        L".\\sqlite3.dll",
+        L".\\sql3\\sqlite3.dll",
+        L"..\\sql3\\sqlite3.dll",
+        NULL
+    };
+
+    for (int i = 0; paths[i] != NULL; i++) {
+        // 尝试加载
+        ctx->hDll = LoadLibraryW(paths[i]);
+        if (ctx->hDll) {
+            // 成功找到DLL
+            wsprintfW(debugMsg, L"成功加载SQLite DLL: %s", paths[i]);
+            OutputDebugStringW(debugMsg);
+            goto load_functions;
+        }
+    }
+
+    // 如果上述路径都找不到，尝试从当前程序目录找
+    GetModuleFileNameW(NULL, dllPath, MAX_PATH);
+    wchar_t *slash = wcsrchr(dllPath, L'\\');
+    if (slash) {
+        *slash = L'\0';
+        wcscat(dllPath, L"\\sqlite3.dll");
+        ctx->hDll = LoadLibraryW(dllPath);
+        if (!ctx->hDll) {
+            wcscpy(dllPath, L"");
+            GetModuleFileNameW(NULL, dllPath, MAX_PATH);
+            slash = wcsrchr(dllPath, L'\\');
+            if (slash) {
+                *slash = L'\0';
+                wcscat(dllPath, L"\\sql3\\sqlite3.dll");
+                ctx->hDll = LoadLibraryW(dllPath);
+            }
+        }
+    }
+
+    if (!ctx->hDll) {
+        DWORD error = GetLastError();
+        wsprintfW(debugMsg, L"无法加载sqlite3.dll! 错误代码: %lu\n请确保sqlite3.dll在程序目录或sql3子目录中。", error);
+        ShowError(debugMsg);
+        return DB_ERROR_OPEN;
+    }
+
+load_functions:
+    // 加载所有函数指针
+    sqlite3_open       = (sqlite3_open_ptr)GetProcAddress(ctx->hDll, "sqlite3_open");
+    sqlite3_open16     = (sqlite3_open16_ptr)GetProcAddress(ctx->hDll, "sqlite3_open16");
+    sqlite3_close      = (sqlite3_close_ptr)GetProcAddress(ctx->hDll, "sqlite3_close");
+    sqlite3_exec       = (sqlite3_exec_ptr)GetProcAddress(ctx->hDll, "sqlite3_exec");
+    sqlite3_prepare_v2 = (sqlite3_prepare_v2_ptr)GetProcAddress(ctx->hDll, "sqlite3_prepare_v2");
+    sqlite3_step       = (sqlite3_step_ptr)GetProcAddress(ctx->hDll, "sqlite3_step");
+    sqlite3_finalize   = (sqlite3_finalize_ptr)GetProcAddress(ctx->hDll, "sqlite3_finalize");
+    sqlite3_column_text= (sqlite3_column_text_ptr)GetProcAddress(ctx->hDll, "sqlite3_column_text");
+    sqlite3_bind_text  = (sqlite3_bind_text_ptr)GetProcAddress(ctx->hDll, "sqlite3_bind_text");
+    sqlite3_last_insert_rowid = (sqlite3_last_insert_rowid_ptr)GetProcAddress(ctx->hDll, "sqlite3_last_insert_rowid");
+    sqlite3_free_ptr   = (void(*)(void*))GetProcAddress(ctx->hDll, "sqlite3_free");
+    sqlite3_reset_ptr  = (int(*)(sqlite3_stmt*))GetProcAddress(ctx->hDll, "sqlite3_reset");
+
+    // 检查必需的函数是否都加载了
+    if (!sqlite3_open || !sqlite3_close || !sqlite3_exec || !sqlite3_prepare_v2 ||
+        !sqlite3_step || !sqlite3_finalize || !sqlite3_column_text || !sqlite3_bind_text) {
+        wchar_t missing[256] = L"缺少以下SQLite函数: ";
+        if (!sqlite3_open) wcscat(missing, L"sqlite3_open ");
+        if (!sqlite3_close) wcscat(missing, L"sqlite3_close ");
+        if (!sqlite3_exec) wcscat(missing, L"sqlite3_exec ");
+        if (!sqlite3_prepare_v2) wcscat(missing, L"sqlite3_prepare_v2 ");
+        if (!sqlite3_step) wcscat(missing, L"sqlite3_step ");
+        if (!sqlite3_finalize) wcscat(missing, L"sqlite3_finalize ");
+        if (!sqlite3_column_text) wcscat(missing, L"sqlite3_column_text ");
+        if (!sqlite3_bind_text) wcscat(missing, L"sqlite3_bind_text ");
+
+        ShowError(missing);
+        FreeLibrary(ctx->hDll);
+        ctx->hDll = NULL;
+        return DB_ERROR_OPEN;
+    }
+
+    OutputDebugStringW(L"所有SQLite函数加载成功!");
+    return DB_OK;
+}
+
+int Db_Init(DbContext *ctx, const wchar_t *dbPath)
+{
+    memset(ctx, 0, sizeof(DbContext));
+    wcscpy(ctx->dbPath, dbPath);
+
+    wchar_t debugMsg[512];
+    wsprintfW(debugMsg, L"初始化数据库，路径: %s", dbPath);
+    OutputDebugStringW(debugMsg);
+
+    // 加载SQLite DLL
+    int result = LoadSQLiteDLL(ctx);
+    if (result != DB_OK) {
+        OutputDebugStringW(L"加载SQLite DLL失败!");
+        return result;
+    }
+
+    // 打开或创建数据库
+    char utf8Path[MAX_PATH * 3];
+    int len = WideCharToMultiByte(CP_UTF8, 0, dbPath, -1, utf8Path, sizeof(utf8Path), NULL, NULL);
+    if (len <= 0) {
+        OutputDebugStringW(L"路径转换失败!");
+        return DB_ERROR_OPEN;
+    }
+
+    result = sqlite3_open(utf8Path, &ctx->db);
+    if (result != 0) {
+        wsprintfW(debugMsg, L"无法打开数据库! SQLite错误: %d", result);
+        ShowError(debugMsg);
+        return DB_ERROR_OPEN;
+    }
+
+    OutputDebugStringW(L"数据库打开成功!");
+
+    // 创建表
+    const char *createTable =
+        "CREATE TABLE IF NOT EXISTS qa_pairs ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "question TEXT NOT NULL UNIQUE,"
+        "answer TEXT NOT NULL,"
+        "create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+        "update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+        "UNIQUE(question) ON CONFLICT REPLACE"
+        ");";
+
+    char *errMsg = NULL;
+    result = sqlite3_exec(ctx->db, createTable, NULL, NULL, &errMsg);
+    if (result != 0) {
+        wsprintfW(debugMsg, L"创建表失败! 错误: %S", errMsg ? errMsg : "未知错误");
+        ShowError(debugMsg);
+        if (sqlite3_free_ptr && errMsg) sqlite3_free_ptr(errMsg);
+        sqlite3_close(ctx->db);
+        ctx->db = NULL;
+        return DB_ERROR_CREATE;
+    }
+
+    OutputDebugStringW(L"表创建/检查成功!");
+
+    // 为题目字段创建索引，提高搜索速度
+    const char *createIndex = "CREATE INDEX IF NOT EXISTS idx_question ON qa_pairs(question);";
+    result = sqlite3_exec(ctx->db, createIndex, NULL, NULL, &errMsg);
+    if (result != 0) {
+        OutputDebugStringW(L"创建索引失败 (但表已成功创建)");
+        if (sqlite3_free_ptr && errMsg) sqlite3_free_ptr(errMsg);
+    }
+
+    OutputDebugStringW(L"数据库初始化完成!");
+    return DB_OK;
+}
+
+int Db_Close(DbContext *ctx)
+{
+    OutputDebugStringW(L"关闭数据库...");
+    if (ctx->db) {
+        sqlite3_close(ctx->db);
+        ctx->db = NULL;
+    }
+    if (ctx->hDll) {
+        FreeLibrary(ctx->hDll);
+        ctx->hDll = NULL;
+    }
+    memset(ctx->dbPath, 0, sizeof(ctx->dbPath));
+    OutputDebugStringW(L"数据库已关闭");
+    return DB_OK;
+}
+
+int Db_Insert(DbContext *ctx, const wchar_t *question, const wchar_t *answer)
+{
+    if (!ctx->db || !ctx->hDll) {
+        OutputDebugStringW(L"数据库未初始化!");
+        return DB_ERROR_OPEN;
+    }
+
+    // 转换为UTF-8
+    char utf8Question[4096], utf8Answer[4096];
+    int qLen = WideCharToMultiByte(CP_UTF8, 0, question, -1, utf8Question, 4096, NULL, NULL);
+    int aLen = WideCharToMultiByte(CP_UTF8, 0, answer, -1, utf8Answer, 4096, NULL, NULL);
+
+    if (qLen <= 0 || aLen <= 0) {
+        OutputDebugStringW(L"文本转换失败!");
+        return DB_ERROR_MEMORY;
+    }
+
+    // 准备SQL语句
+    const char *sql = "REPLACE INTO qa_pairs (question, answer, update_time) VALUES (?, ?, CURRENT_TIMESTAMP);";
+    sqlite3_stmt *stmt;
+    int result = sqlite3_prepare_v2(ctx->db, sql, -1, &stmt, NULL);
+    if (result != 0) {
+        OutputDebugStringW(L"SQL准备失败!");
+        return DB_ERROR_EXEC;
+    }
+
+    sqlite3_bind_text(stmt, 1, utf8Question, qLen - 1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, utf8Answer, aLen - 1, SQLITE_TRANSIENT);
+
+    result = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (result != SQLITE_DONE) {
+        OutputDebugStringW(L"SQL执行失败!");
+        return DB_ERROR_EXEC;
+    }
+
+    OutputDebugStringW(L"数据插入成功!");
+    return DB_OK;
+}
+
+wchar_t* Db_Search(DbContext *ctx, const wchar_t *question)
+{
+    if (!ctx->db || !ctx->hDll) {
+        OutputDebugStringW(L"数据库未初始化!");
+        return NULL;
+    }
+
+    char utf8Question[4096];
+    int qLen = WideCharToMultiByte(CP_UTF8, 0, question, -1, utf8Question, 4096, NULL, NULL);
+    if (qLen <= 0) {
+        OutputDebugStringW(L"文本转换失败!");
+        return NULL;
+    }
+
+    const char *sql = "SELECT answer FROM qa_pairs WHERE question = ?;";
+    sqlite3_stmt *stmt;
+    int result = sqlite3_prepare_v2(ctx->db, sql, -1, &stmt, NULL);
+    if (result != 0) {
+        OutputDebugStringW(L"SQL准备失败!");
+        return NULL;
+    }
+
+    sqlite3_bind_text(stmt, 1, utf8Question, qLen - 1, SQLITE_TRANSIENT);
+
+    result = sqlite3_step(stmt);
+    if (result != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        OutputDebugStringW(L"未找到匹配的题目");
+        return NULL;
+    }
+
+    const unsigned char *utf8Answer = sqlite3_column_text(stmt, 0);
+    if (!utf8Answer) {
+        sqlite3_finalize(stmt);
+        OutputDebugStringW(L"答案为空!");
+        return NULL;
+    }
+
+    int aLen = MultiByteToWideChar(CP_UTF8, 0, (const char *)utf8Answer, -1, NULL, 0);
+    wchar_t *answer = (wchar_t *)malloc(aLen * sizeof(wchar_t));
+    if (!answer) {
+        sqlite3_finalize(stmt);
+        OutputDebugStringW(L"内存分配失败!");
+        return NULL;
+    }
+
+    MultiByteToWideChar(CP_UTF8, 0, (const char *)utf8Answer, -1, answer, aLen);
+    sqlite3_finalize(stmt);
+
+    OutputDebugStringW(L"找到匹配的答案!");
+    return answer;
+}
+
+int Db_Delete(DbContext *ctx, const wchar_t *question)
+{
+    if (!ctx->db || !ctx->hDll) {
+        return DB_ERROR_OPEN;
+    }
+
+    char utf8Question[4096];
+    int qLen = WideCharToMultiByte(CP_UTF8, 0, question, -1, utf8Question, 4096, NULL, NULL);
+    if (qLen <= 0) {
+        return DB_ERROR_MEMORY;
+    }
+
+    const char *sql = "DELETE FROM qa_pairs WHERE question = ?;";
+    sqlite3_stmt *stmt;
+    int result = sqlite3_prepare_v2(ctx->db, sql, -1, &stmt, NULL);
+    if (result != 0) {
+        return DB_ERROR_EXEC;
+    }
+
+    sqlite3_bind_text(stmt, 1, utf8Question, qLen - 1, SQLITE_TRANSIENT);
+
+    result = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (result != SQLITE_DONE) {
+        return DB_ERROR_EXEC;
+    }
+
+    return DB_OK;
+}
+
+struct QAPair* Db_GetAllPairs(DbContext *ctx, int *count)
+{
+    if (!ctx->db || !ctx->hDll) {
+        return NULL;
+    }
+
+    const char *sql = "SELECT question, answer FROM qa_pairs ORDER BY id ASC;";
+    sqlite3_stmt *stmt;
+    int result = sqlite3_prepare_v2(ctx->db, sql, -1, &stmt, NULL);
+    if (result != 0) {
+        return NULL;
+    }
+
+    // 先计算记录数
+    int tmpCount = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        tmpCount++;
+    }
+    sqlite3_finalize(stmt);
+
+    // 重新准备语句
+    result = sqlite3_prepare_v2(ctx->db, sql, -1, &stmt, NULL);
+    if (result != 0) {
+        return NULL;
+    }
+
+    // 分配内存
+    struct QAPair *pairs = (struct QAPair *)malloc(tmpCount * sizeof(struct QAPair));
+    if (!pairs) {
+        sqlite3_finalize(stmt);
+        return NULL;
+    }
+    memset(pairs, 0, tmpCount * sizeof(struct QAPair));
+
+    // 读取所有记录
+    int i = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char *utf8Question = sqlite3_column_text(stmt, 0);
+        const unsigned char *utf8Answer = sqlite3_column_text(stmt, 1);
+
+        int qLen = MultiByteToWideChar(CP_UTF8, 0, (const char *)utf8Question, -1, NULL, 0);
+        int aLen = MultiByteToWideChar(CP_UTF8, 0, (const char *)utf8Answer, -1, NULL, 0);
+
+        pairs[i].question = (wchar_t *)malloc(qLen * sizeof(wchar_t));
+        pairs[i].answer = (wchar_t *)malloc(aLen * sizeof(wchar_t));
+
+        MultiByteToWideChar(CP_UTF8, 0, (const char *)utf8Question, -1, pairs[i].question, qLen);
+        MultiByteToWideChar(CP_UTF8, 0, (const char *)utf8Answer, -1, pairs[i].answer, aLen);
+
+        i++;
+    }
+
+    sqlite3_finalize(stmt);
+    *count = tmpCount;
+
+    return pairs;
+}
+
+void Db_FreeResults(struct QAPair *pairs, int count)
+{
+    if (!pairs) return;
+
+    for (int i = 0; i < count; i++) {
+        if (pairs[i].question) free(pairs[i].question);
+        if (pairs[i].answer) free(pairs[i].answer);
+    }
+    free(pairs);
+}
+
+int Db_ImportFromText(DbContext *ctx, const wchar_t *text)
+{
+    if (!ctx->db || !ctx->hDll) {
+        return DB_ERROR_OPEN;
+    }
+
+    int importedCount = 0;
+    wchar_t *line = _wcsdup(text);
+    if (!line) {
+        return DB_ERROR_MEMORY;
+    }
+
+    // 按行分割
+    wchar_t *p = line;
+    wchar_t *next;
+
+    while (*p) {
+        // 找到换行符
+        next = wcsstr(p, L"\n");
+        if (next) *next = L'\0';
+
+        // 去掉首尾空格
+        wchar_t *trimmed = p;
+        while (*trimmed && (*trimmed == L' ' || *trimmed == L'\t' || *trimmed == L'\r')) trimmed++;
+        wchar_t *end = trimmed;
+        while (*end) end++;
+        while (end > trimmed && (*(end - 1) == L' ' || *(end - 1) == L'\t' || *(end - 1) == L'\r')) end--;
+        *end = L'\0';
+
+        if (*trimmed) {
+            // 解析格式：题目:题目内容 答案:答案内容
+            wchar_t *qMark = wcsstr(trimmed, L"题目:");
+            wchar_t *aMark = wcsstr(trimmed, L"答案:");
+
+            if (qMark && aMark && qMark < aMark) {
+                wchar_t *question = qMark + 3; // 跳过"题目:"
+                wchar_t *answer = aMark + 3;  // 跳过"答案:"
+
+                // 找到题目和答案之间的空格分割
+                wchar_t *space = question;
+                while (*space && space < aMark) {
+                    if (*space == L' ' || *space == L'\t') {
+                        *space = L'\0';
+                        // 跳过多余的空格
+                        while (*(space + 1) == L' ' || *(space + 1) == L'\t') space++;
+                        if (wcslen(question) > 0 && wcslen(answer) > 0) {
+                            Db_Insert(ctx, question, answer);
+                            importedCount++;
+                        }
+                        break;
+                    }
+                    space++;
+                }
+            }
+        }
+
+        if (!next) break;
+        p = next + 1;
+    }
+
+    free(line);
+    return importedCount;
+}
+
+wchar_t* Db_ExportToText(DbContext *ctx)
+{
+    if (!ctx->db || !ctx->hDll) {
+        return NULL;
+    }
+
+    int count = 0;
+    struct QAPair *pairs = Db_GetAllPairs(ctx, &count);
+    if (!pairs || count == 0) {
+        return NULL;
+    }
+
+    // 计算需要的缓冲区大小
+    size_t totalLen = 0;
+    for (int i = 0; i < count; i++) {
+        totalLen += wcslen(pairs[i].question) + wcslen(pairs[i].answer) + 20; // 题目:答案:和换行
+    }
+    totalLen += 1; // 结束符
+
+    wchar_t *text = (wchar_t *)malloc(totalLen * sizeof(wchar_t));
+    if (!text) {
+        Db_FreeResults(pairs, count);
+        return NULL;
+    }
+    text[0] = L'\0';
+
+    for (int i = 0; i < count; i++) {
+        wcscat(text, L"题目:");
+        wcscat(text, pairs[i].question);
+        wcscat(text, L" 答案:");
+        wcscat(text, pairs[i].answer);
+        wcscat(text, L"\r\n");
+    }
+
+    Db_FreeResults(pairs, count);
+    return text;
+}
+
+BOOL Db_IsInitialized(DbContext *ctx)
+{
+    return (ctx->hDll != NULL && ctx->db != NULL);
+}

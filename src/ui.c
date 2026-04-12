@@ -156,6 +156,7 @@ void UI_Create(HWND hwndParent, AppUI *ui)
     ui->hwndBtnStart   = MakeOwnerDrawBtn(hwndParent, L"开始输入",   IDC_BTN_START,   ui->hFontUI, ui, BTN_ROLE_ACCENT);
     ui->hwndBtnPause   = MakeOwnerDrawBtn(hwndParent, L"暂停",       IDC_BTN_PAUSE,   ui->hFontUI, ui, BTN_ROLE_WARN);
     ui->hwndBtnStop    = MakeOwnerDrawBtn(hwndParent, L"停止",       IDC_BTN_STOP,    ui->hFontUI, ui, BTN_ROLE_DANGER);
+    ui->hwndBtnDatabase= MakeOwnerDrawBtn(hwndParent, L"数据库功能", IDC_BTN_DATABASE, ui->hFontUI, ui, BTN_ROLE_NEUTRAL);
 
     // 速度预设
     ui->hwndStaticPreset = MakeStatic(hwndParent, L"速度预设：", IDC_STATIC_PRESET, ui->hFontUI);
@@ -222,6 +223,9 @@ void UI_Layout(AppUI *ui, int cx, int cy)
     int y = pad;
 
     SetWindowPos(ui->hwndBtnLoad, NULL, panelX, y, panelW, btnH, SWP_NOZORDER);
+    y += btnH + 6;
+
+    SetWindowPos(ui->hwndBtnDatabase, NULL, panelX, y, panelW, btnH, SWP_NOZORDER);
     y += btnH + pad;
 
     SetWindowPos(ui->hwndStaticPreset, NULL, panelX, y, panelW, 18, SWP_NOZORDER);
@@ -270,6 +274,7 @@ void UI_SetState(AppUI *ui, int state)
     EnableWindow(ui->hwndBtnStart,     state == STATE_READY);
     EnableWindow(ui->hwndBtnPause,     state == STATE_RUNNING || state == STATE_PAUSED);
     EnableWindow(ui->hwndBtnStop,      state == STATE_RUNNING || state == STATE_PAUSED);
+    EnableWindow(ui->hwndBtnDatabase,  TRUE);  // 数据库功能始终可用
     EnableWindow(ui->hwndTrackbar,     state == STATE_IDLE || state == STATE_READY);
     EnableWindow(ui->hwndEditInterval, state == STATE_IDLE || state == STATE_READY);
     EnableWindow(ui->hwndComboPreset,  state == STATE_IDLE || state == STATE_READY);
