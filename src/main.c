@@ -421,7 +421,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_HOTKEY:
         if (wParam == HOTKEY_START) {
             if (g_state == STATE_IDLE) {
-                OnBtnPrepare();
+                int textLen = GetWindowTextLengthW(g_ui.hwndEditText);
+                if (textLen == 0) return 0;
+                SetState(STATE_READY);
+                StartTyping();
             } else if (g_state == STATE_READY) {
                 StartTyping();
             }

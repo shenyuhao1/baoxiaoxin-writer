@@ -24,7 +24,24 @@ static void SendChar(wchar_t ch)
         return;
     }
     if (ch == L'\n') {
-        SendVKey(VK_RETURN);
+        INPUT input[4];
+        ZeroMemory(input, sizeof(input));
+
+        input[0].type = INPUT_KEYBOARD;
+        input[0].ki.wVk = VK_SHIFT;
+
+        input[1].type = INPUT_KEYBOARD;
+        input[1].ki.wVk = VK_RETURN;
+
+        input[2].type = INPUT_KEYBOARD;
+        input[2].ki.wVk = VK_RETURN;
+        input[2].ki.dwFlags = KEYEVENTF_KEYUP;
+
+        input[3].type = INPUT_KEYBOARD;
+        input[3].ki.wVk = VK_SHIFT;
+        input[3].ki.dwFlags = KEYEVENTF_KEYUP;
+
+        SendInput(4, input, sizeof(INPUT));
         return;
     }
     if (ch == L'\t') {
