@@ -18,6 +18,11 @@
 #define IDC_CHK_TOPMOST     1015
 #define IDC_BTN_DATABASE    1016  // 数据库功能按钮
 
+// ── 浮动条控件 ID ──────────────────────────────────────────
+#define IDC_FLOAT_BTN_INPUT  1020
+#define IDC_FLOAT_BTN_FULL   1021
+#define TIMER_CARET_CHECK    1001
+
 // ── 题库管理对话框控件 ID ──────────────────────────────────
 #define IDD_QA_MANAGER       101
 #define IDC_TAB_QA_MANAGER   102
@@ -52,6 +57,12 @@
 #define WM_WORKER_PROGRESS  (WM_USER + 1)
 // wParam = 0 正常完成, 1 = 被停止
 #define WM_WORKER_DONE      (WM_USER + 2)
+// 托盘图标消息
+#define WM_TRAYICON         (WM_USER + 3)
+
+// ── 托盘图标命令 ────────────────────────────────────────
+#define IDM_TRAY_SHOW       2001
+#define IDM_TRAY_QUIT       2002
 
 // ── 应用状态机 ───────────────────────────────────────────
 #define STATE_IDLE      0   // 空闲

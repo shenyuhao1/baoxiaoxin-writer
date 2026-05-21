@@ -16,6 +16,7 @@
 #include "worker.h"
 #include "database.h"
 #include "qa_ui.h"
+#include "floatbar.h"
 
 // ── 全局状态 ─────────────────────────────────────────────
 static AppUI     g_ui;
@@ -28,8 +29,81 @@ static HANDLE        g_hThread = NULL;
 
 static DbContext     g_dbCtx;
 
+static FloatBar  g_floatBar;
+static BOOL      g_mainGuiVisible = FALSE;
+
 // 防止 Trackbar ↔ EditInterval 互相触发
 static BOOL g_syncingInterval = FALSE;
+
+// ── 浮动条回调 ─────────────────────────────────────────────
+
+static wchar_t* GetClipboardText(void);  // 前向声明
+static void SetState(int newState);       // 前向声明
+
+static void OnFloatSimInput(void);
+static void OnFloatOpenFull(void);
+
+static void OnFloatSimInput(void)
+{
+    FloatBar_Hide(&g_floatBar);
+
+    if (g_state != STATE_IDLE) return;
+
+    // 直接从剪贴板读取文本
+    wchar_t *clipText = GetClipboardText();
+    if (!clipText || wcslen(clipText) == 0) {
+        free(clipText);
+        return;
+    }
+
+    int textLen = (int)wcslen(clipText);
+
+    // 转为 HeapAlloc（Worker_Free 用 HeapFree 释放，不能用 malloc 的内存）
+    wchar_t *text = (wchar_t *)HeapAlloc(GetProcessHeap(), 0,
+                                          (textLen + 1) * sizeof(wchar_t));
+    if (!text) { free(clipText); return; }
+    wcscpy(text, clipText);
+    free(clipText);
+
+    g_worker = (WorkerParams *)HeapAlloc(GetProcessHeap(),
+                                          HEAP_ZERO_MEMORY, sizeof(WorkerParams));
+    if (!g_worker) { HeapFree(GetProcessHeap(), 0, text); return; }
+
+    g_worker->text      = text;
+    g_worker->textLen   = textLen;
+    g_worker->delayMs   = g_cfg.delayMs;
+    g_worker->hwndMain  = g_ui.hwndMain;
+
+    g_hThread = Worker_Start(g_worker);
+    if (!g_hThread) {
+        Worker_Free(g_worker);
+        g_worker = NULL;
+        return;
+    }
+
+    SetState(STATE_RUNNING);
+}
+
+static void OnFloatOpenFull(void)
+{
+    FloatBar_Hide(&g_floatBar);
+    if (!g_mainGuiVisible) {
+        ShowWindow(g_ui.hwndMain, SW_SHOW);
+        g_mainGuiVisible = TRUE;
+    }
+    SetForegroundWindow(g_ui.hwndMain);
+}
+
+// Show floatbar at current cursor position
+static void ShowFloatAtCursor(void)
+{
+    if (g_floatBar.visible) return;
+    if (g_state != STATE_IDLE) return;
+
+    POINT pt;
+    GetCursorPos(&pt);
+    FloatBar_ShowAt(&g_floatBar, pt.x, pt.y + 10);
+}
 
 // ── 辅助函数 ─────────────────────────────────────────────
 
@@ -396,6 +470,25 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             g_cfg.alwaysOnTop ? BST_CHECKED : BST_UNCHECKED, 0);
         if (g_cfg.alwaysOnTop)
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
+        // 初始化浮动条
+        FloatBar_Create(&g_floatBar, ((LPCREATESTRUCTW)lParam)->hInstance, g_cfg.darkMode);
+        g_floatBar.OnSimInput = OnFloatSimInput;
+        g_floatBar.OnOpenFull = OnFloatOpenFull;
+
+        // 系统托盘图标
+        {
+            NOTIFYICONDATAW nid = {0};
+            nid.cbSize = sizeof(nid);
+            nid.hWnd   = hwnd;
+            nid.uID    = 1;
+            nid.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
+            nid.uCallbackMessage = WM_TRAYICON;
+            nid.hIcon  = LoadIconW(NULL, IDI_APPLICATION);
+            wcscpy(nid.szTip, L"模拟键盘输入工具");
+            Shell_NotifyIconW(NIM_ADD, &nid);
+        }
+
         return 0;
 
     case WM_ERASEBKGND: {
@@ -421,10 +514,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_HOTKEY:
         if (wParam == HOTKEY_START) {
             if (g_state == STATE_IDLE) {
-                int textLen = GetWindowTextLengthW(g_ui.hwndEditText);
-                if (textLen == 0) return 0;
-                SetState(STATE_READY);
-                StartTyping();
+                ShowFloatAtCursor();
             } else if (g_state == STATE_READY) {
                 StartTyping();
             }
@@ -436,6 +526,18 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_COMMAND: {
         int id = LOWORD(wParam);
         int code = HIWORD(wParam);
+
+        // 托盘菜单命令
+        if (id == IDM_TRAY_SHOW) {
+            ShowWindow(hwnd, SW_SHOW);
+            SetForegroundWindow(hwnd);
+            g_mainGuiVisible = TRUE;
+            return 0;
+        }
+        if (id == IDM_TRAY_QUIT) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
 
         if (id == IDC_BTN_LOAD)    { OnBtnLoad();    return 0; }
         if (id == IDC_BTN_PREPARE) { OnBtnPrepare(); return 0; }
@@ -477,9 +579,31 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         OnWorkerDone((BOOL)wParam);
         return 0;
 
+    case WM_TRAYICON:
+        if (LOWORD(lParam) == WM_RBUTTONUP) {
+            POINT pt;
+            GetCursorPos(&pt);
+            HMENU hMenu = CreatePopupMenu();
+            AppendMenuW(hMenu, MF_STRING, IDM_TRAY_SHOW, L"打开主窗口");
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(hMenu, MF_STRING, IDM_TRAY_QUIT, L"退出");
+            SetForegroundWindow(hwnd);
+            TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+        }
+        return 0;
+
     case WM_DESTROY:
         UnregisterHotKey(hwnd, HOTKEY_START);
         UnregisterHotKey(hwnd, HOTKEY_SEARCH);
+        // 移除托盘图标
+        {
+            NOTIFYICONDATAW nid = {0};
+            nid.cbSize = sizeof(nid);
+            nid.hWnd   = hwnd;
+            nid.uID    = 1;
+            Shell_NotifyIconW(NIM_DELETE, &nid);
+        }
         if (g_worker) {
             Worker_Stop(g_worker);
             if (g_hThread) {
@@ -488,6 +612,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             Worker_Free(g_worker);
         }
+        FloatBar_Destroy(&g_floatBar);
         Db_Close(&g_dbCtx);
         Config_Save(&g_cfg, g_iniPath);
         UI_Destroy(&g_ui);
@@ -555,7 +680,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     if (!hwnd) return 1;
 
-    ShowWindow(hwnd, nCmdShow);
+    g_mainGuiVisible = FALSE;
+    // 启动时隐藏主窗口，仅在托盘和浮动条模式运行
+    ShowWindow(hwnd, SW_HIDE);
     UpdateWindow(hwnd);
 
     MSG msg;
