@@ -471,7 +471,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             nid.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
             nid.uCallbackMessage = WM_TRAYICON;
             nid.hIcon  = LoadIconW(NULL, IDI_APPLICATION);
-            wcscpy(nid.szTip, L"模拟键盘输入工具");
+            wcscpy(nid.szTip, L"鲍小新写字");
             Shell_NotifyIconW(NIM_ADD, &nid);
         }
 
@@ -657,7 +657,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     HWND hwnd = CreateWindowExW(
         WS_EX_APPWINDOW,
         L"KeyboardSimClass",
-        L"模拟键盘输入工具  v1.0",
+        L"鲍小新写字  v3.0",
         WS_OVERLAPPEDWINDOW,
         x, y, winW, winH,
         NULL, NULL, hInstance, NULL);
