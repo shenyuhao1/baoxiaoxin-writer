@@ -294,6 +294,46 @@ wchar_t* Db_Search(DbContext *ctx, const wchar_t *question)
     return answer;
 }
 
+wchar_t* Db_SearchFuzzy(DbContext *ctx, const wchar_t *question)
+{
+    // 先尝试精确匹配
+    wchar_t *answer = Db_Search(ctx, question);
+    if (answer) return answer;
+
+    if (!ctx->db || !ctx->hDll) return NULL;
+
+    // 获取所有题目
+    int count = 0;
+    struct QAPair *pairs = Db_GetAllPairs(ctx, &count);
+    if (!pairs || count == 0) return NULL;
+
+    // 将搜索词转为小写
+    wchar_t qLower[4096];
+    wcscpy(qLower, question);
+    _wcslwr(qLower);
+
+    wchar_t *bestAnswer = NULL;
+    double bestScore = 0;
+
+    for (int i = 0; i < count; i++) {
+        wchar_t stored[4096];
+        wcscpy(stored, pairs[i].question);
+        _wcslwr(stored);
+
+        if (wcsstr(stored, qLower)) {
+            double score = (double)wcslen(question) / (double)wcslen(pairs[i].question);
+            if (score > bestScore) {
+                bestScore = score;
+                if (bestAnswer) free(bestAnswer);
+                bestAnswer = _wcsdup(pairs[i].answer);
+            }
+        }
+    }
+
+    Db_FreeResults(pairs, count);
+    return bestAnswer;
+}
+
 int Db_Delete(DbContext *ctx, const wchar_t *question)
 {
     if (!ctx->db || !ctx->hDll) {

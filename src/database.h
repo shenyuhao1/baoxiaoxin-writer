@@ -59,6 +59,9 @@ int Db_Insert(DbContext *ctx, const wchar_t *question, const wchar_t *answer);
 // 搜索答案（通过题目）
 wchar_t* Db_Search(DbContext *ctx, const wchar_t *question);
 
+// 模糊搜索答案（先精确匹配，再子串匹配）
+wchar_t* Db_SearchFuzzy(DbContext *ctx, const wchar_t *question);
+
 // 删除记录（通过题目）
 int Db_Delete(DbContext *ctx, const wchar_t *question);
 
