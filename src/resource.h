@@ -18,10 +18,8 @@
 #define IDC_CHK_TOPMOST     1015
 #define IDC_BTN_DATABASE    1016  // 数据库功能按钮
 
-// ── 浮动条控件 ID ──────────────────────────────────────────
-#define IDC_FLOAT_BTN_INPUT  1020
-#define IDC_FLOAT_BTN_FULL   1021
-#define TIMER_CARET_CHECK    1001
+// ── 搜索模式复选框 ────────────────────────────────────────
+#define IDC_CHK_FUZZY        1017
 
 // ── 题库管理对话框控件 ID ──────────────────────────────────
 #define IDD_QA_MANAGER       101

@@ -200,6 +200,12 @@ void UI_Create(HWND hwndParent, AppUI *ui)
         0, 0, 0, 0, hwndParent, (HMENU)IDC_CHK_TOPMOST, NULL, NULL);
     SendMessageW(ui->hwndChkTopmost, WM_SETFONT, (WPARAM)ui->hFontUI, TRUE);
 
+    ui->hwndChkFuzzy = CreateWindowExW(0, L"BUTTON", L"模糊搜索",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        0, 0, 0, 0, hwndParent, (HMENU)IDC_CHK_FUZZY, NULL, NULL);
+    SendMessageW(ui->hwndChkFuzzy, WM_SETFONT, (WPARAM)ui->hFontUI, TRUE);
+    SendMessageW(ui->hwndChkFuzzy, BM_SETCHECK, BST_CHECKED, 0);
+
     UI_SetState(ui, STATE_IDLE);
 }
 
@@ -262,6 +268,9 @@ void UI_Layout(AppUI *ui, int cx, int cy)
     SetWindowPos(ui->hwndStatus, NULL,
         pad, bottomY + progressH + pad,
         cx - pad * 3 - chkW, statusH, SWP_NOZORDER);
+    SetWindowPos(ui->hwndChkFuzzy, NULL,
+        cx - pad * 2 - chkW * 2, bottomY + progressH + pad,
+        chkW, statusH, SWP_NOZORDER);
     SetWindowPos(ui->hwndChkTopmost, NULL,
         cx - pad - chkW, bottomY + progressH + pad,
         chkW, statusH, SWP_NOZORDER);

@@ -16,7 +16,6 @@
 #include "worker.h"
 #include "database.h"
 #include "qa_ui.h"
-#include "floatbar.h"
 
 // ── 全局状态 ─────────────────────────────────────────────
 static AppUI     g_ui;
@@ -29,27 +28,18 @@ static HANDLE        g_hThread = NULL;
 
 static DbContext     g_dbCtx;
 
-static FloatBar  g_floatBar;
-static BOOL      g_mainGuiVisible = FALSE;
-
 // 防止 Trackbar ↔ EditInterval 互相触发
 static BOOL g_syncingInterval = FALSE;
 
-// ── 浮动条回调 ─────────────────────────────────────────────
+// ── 从剪切板读取文本并直接开始输入 ───────────────────────
 
 static wchar_t* GetClipboardText(void);  // 前向声明
 static void SetState(int newState);       // 前向声明
 
-static void OnFloatSimInput(void);
-static void OnFloatOpenFull(void);
-
-static void OnFloatSimInput(void)
+static void StartTypingFromClipboard(void)
 {
-    FloatBar_Hide(&g_floatBar);
-
     if (g_state != STATE_IDLE) return;
 
-    // 直接从剪贴板读取文本
     wchar_t *clipText = GetClipboardText();
     if (!clipText || wcslen(clipText) == 0) {
         free(clipText);
@@ -82,27 +72,6 @@ static void OnFloatSimInput(void)
     }
 
     SetState(STATE_RUNNING);
-}
-
-static void OnFloatOpenFull(void)
-{
-    FloatBar_Hide(&g_floatBar);
-    if (!g_mainGuiVisible) {
-        ShowWindow(g_ui.hwndMain, SW_SHOW);
-        g_mainGuiVisible = TRUE;
-    }
-    SetForegroundWindow(g_ui.hwndMain);
-}
-
-// Show floatbar at current cursor position
-static void ShowFloatAtCursor(void)
-{
-    if (g_floatBar.visible) return;
-    if (g_state != STATE_IDLE) return;
-
-    POINT pt;
-    GetCursorPos(&pt);
-    FloatBar_ShowAt(&g_floatBar, pt.x, pt.y + 10);
 }
 
 // ── 辅助函数 ─────────────────────────────────────────────
@@ -156,14 +125,36 @@ static void SearchFromClipboard(void)
         return;
     }
 
-    wchar_t *answer = Db_Search(&g_dbCtx, question);
+    BOOL useFuzzy = (SendMessageW(g_ui.hwndChkFuzzy, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    wchar_t *answer = useFuzzy ? Db_SearchFuzzy(&g_dbCtx, question)
+                               : Db_Search(&g_dbCtx, question);
     if (answer) {
-        SetWindowTextW(g_ui.hwndEditText, answer);
-        UI_SetStatus(&g_ui, L"已找到答案并粘贴到输入框！");
+        if (IsWindowVisible(g_ui.hwndMain)) {
+            SetWindowTextW(g_ui.hwndEditText, answer);
+            UI_SetStatus(&g_ui, L"已找到答案并粘贴到输入框！");
+        } else {
+            // 托盘模式：复制到剪贴板
+            if (OpenClipboard(NULL)) {
+                EmptyClipboard();
+                size_t ansLen = wcslen(answer);
+                HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (ansLen + 1) * sizeof(wchar_t));
+                if (hMem) {
+                    wchar_t *pMem = (wchar_t *)GlobalLock(hMem);
+                    if (pMem) {
+                        wcscpy(pMem, answer);
+                        GlobalUnlock(hMem);
+                    }
+                    SetClipboardData(CF_UNICODETEXT, hMem);
+                }
+                CloseClipboard();
+            }
+        }
         free(answer);
     } else {
-        UI_SetStatus(&g_ui, L"暂未搜索到相应答案！");
-        MessageBoxW(g_ui.hwndMain, L"暂未搜索到相应答案！", L"提示", MB_ICONINFORMATION);
+        if (IsWindowVisible(g_ui.hwndMain)) {
+            UI_SetStatus(&g_ui, L"暂未搜索到相应答案！");
+            MessageBoxW(g_ui.hwndMain, L"暂未搜索到相应答案！", L"提示", MB_ICONINFORMATION);
+        }
     }
 
     free(clipboardText);
@@ -471,11 +462,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if (g_cfg.alwaysOnTop)
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
-        // 初始化浮动条
-        FloatBar_Create(&g_floatBar, ((LPCREATESTRUCTW)lParam)->hInstance, g_cfg.darkMode);
-        g_floatBar.OnSimInput = OnFloatSimInput;
-        g_floatBar.OnOpenFull = OnFloatOpenFull;
-
         // 系统托盘图标
         {
             NOTIFYICONDATAW nid = {0};
@@ -514,7 +500,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_HOTKEY:
         if (wParam == HOTKEY_START) {
             if (g_state == STATE_IDLE) {
-                ShowFloatAtCursor();
+                StartTypingFromClipboard();
             } else if (g_state == STATE_READY) {
                 StartTyping();
             }
@@ -531,7 +517,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         if (id == IDM_TRAY_SHOW) {
             ShowWindow(hwnd, SW_SHOW);
             SetForegroundWindow(hwnd);
-            g_mainGuiVisible = TRUE;
             return 0;
         }
         if (id == IDM_TRAY_QUIT) {
@@ -612,7 +597,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             Worker_Free(g_worker);
         }
-        FloatBar_Destroy(&g_floatBar);
         Db_Close(&g_dbCtx);
         Config_Save(&g_cfg, g_iniPath);
         UI_Destroy(&g_ui);
@@ -680,8 +664,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     if (!hwnd) return 1;
 
-    g_mainGuiVisible = FALSE;
-    // 启动时隐藏主窗口，仅在托盘和浮动条模式运行
+    // 启动时隐藏主窗口，后台运行，通过热键或托盘菜单操作
     ShowWindow(hwnd, SW_HIDE);
     UpdateWindow(hwnd);
 
