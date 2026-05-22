@@ -35,10 +35,6 @@ typedef struct {
     HWND hwndMain;
     HWND hwndEditText;
     HWND hwndBtnLoad;
-    HWND hwndBtnPrepare;
-    HWND hwndBtnStart;
-    HWND hwndBtnPause;
-    HWND hwndBtnStop;
     HWND hwndBtnDatabase;
     HWND hwndTrackbar;
     HWND hwndEditInterval;
@@ -48,8 +44,10 @@ typedef struct {
     HWND hwndStaticInterval;
     HWND hwndStaticPreset;
     HWND hwndStaticChars;
+    HWND hwndStaticHint;
     HWND hwndChkTopmost;
     HWND hwndChkFuzzy;
+    HWND hwndChkUsePanel;
 
     HFONT hFontUI;
     HFONT hFontEdit;
