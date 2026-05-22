@@ -152,10 +152,6 @@ void UI_Create(HWND hwndParent, AppUI *ui)
 
     // 右侧按钮（owner-draw）
     ui->hwndBtnLoad    = MakeOwnerDrawBtn(hwndParent, L"从文件加载", IDC_BTN_LOAD,    ui->hFontUI, ui, BTN_ROLE_NEUTRAL);
-    ui->hwndBtnPrepare = MakeOwnerDrawBtn(hwndParent, L"准备输入",   IDC_BTN_PREPARE, ui->hFontUI, ui, BTN_ROLE_NEUTRAL);
-    ui->hwndBtnStart   = MakeOwnerDrawBtn(hwndParent, L"开始输入",   IDC_BTN_START,   ui->hFontUI, ui, BTN_ROLE_ACCENT);
-    ui->hwndBtnPause   = MakeOwnerDrawBtn(hwndParent, L"暂停",       IDC_BTN_PAUSE,   ui->hFontUI, ui, BTN_ROLE_WARN);
-    ui->hwndBtnStop    = MakeOwnerDrawBtn(hwndParent, L"停止",       IDC_BTN_STOP,    ui->hFontUI, ui, BTN_ROLE_DANGER);
     ui->hwndBtnDatabase= MakeOwnerDrawBtn(hwndParent, L"数据库功能", IDC_BTN_DATABASE, ui->hFontUI, ui, BTN_ROLE_NEUTRAL);
 
     // 速度预设
@@ -206,6 +202,17 @@ void UI_Create(HWND hwndParent, AppUI *ui)
     SendMessageW(ui->hwndChkFuzzy, WM_SETFONT, (WPARAM)ui->hFontUI, TRUE);
     SendMessageW(ui->hwndChkFuzzy, BM_SETCHECK, BST_CHECKED, 0);
 
+    // 从面板读取（默认不勾选，热键读剪切板）
+    ui->hwndChkUsePanel = CreateWindowExW(0, L"BUTTON", L"从面板读取",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        0, 0, 0, 0, hwndParent, (HMENU)IDC_CHK_USE_PANEL, NULL, NULL);
+    SendMessageW(ui->hwndChkUsePanel, WM_SETFONT, (WPARAM)ui->hFontUI, TRUE);
+
+    // 使用提示
+    ui->hwndStaticHint = MakeStatic(hwndParent,
+        L"Ctrl+Alt+V 开始输入\nCtrl+Alt+B 搜索答案\nCtrl+Alt+S 停止输入",
+        0, ui->hFontUI);
+
     UI_SetState(ui, STATE_IDLE);
 }
 
@@ -247,15 +254,11 @@ void UI_Layout(AppUI *ui, int cx, int cy)
         panelX + panelW/2 - 28, y, 56, 24, SWP_NOZORDER);
     y += 30 + pad;
 
-    SetWindowPos(ui->hwndBtnPrepare, NULL, panelX, y, panelW, btnH, SWP_NOZORDER);
-    y += btnH + 6;
-    SetWindowPos(ui->hwndBtnStart, NULL, panelX, y, panelW, btnH, SWP_NOZORDER);
-    y += btnH + pad;
+    SetWindowPos(ui->hwndChkUsePanel, NULL, panelX, y, panelW, 24, SWP_NOZORDER);
+    y += 24 + pad * 2;
 
-    int halfW = (panelW - 6) / 2;
-    SetWindowPos(ui->hwndBtnPause, NULL, panelX, y, halfW, btnH, SWP_NOZORDER);
-    SetWindowPos(ui->hwndBtnStop,  NULL, panelX + halfW + 6, y, halfW, btnH, SWP_NOZORDER);
-    y += btnH + pad;
+    SetWindowPos(ui->hwndStaticHint, NULL, panelX, y, panelW, 70, SWP_NOZORDER);
+    y += 70 + pad * 2;
 
     SetWindowPos(ui->hwndStaticChars, NULL, panelX, y, panelW, 18, SWP_NOZORDER);
 
@@ -278,17 +281,12 @@ void UI_Layout(AppUI *ui, int cx, int cy)
 
 void UI_SetState(AppUI *ui, int state)
 {
-    EnableWindow(ui->hwndBtnLoad,      state == STATE_IDLE || state == STATE_READY);
-    EnableWindow(ui->hwndBtnPrepare,   state == STATE_IDLE);
-    EnableWindow(ui->hwndBtnStart,     state == STATE_READY);
-    EnableWindow(ui->hwndBtnPause,     state == STATE_RUNNING || state == STATE_PAUSED);
-    EnableWindow(ui->hwndBtnStop,      state == STATE_RUNNING || state == STATE_PAUSED);
-    EnableWindow(ui->hwndBtnDatabase,  TRUE);  // 数据库功能始终可用
-    EnableWindow(ui->hwndTrackbar,     state == STATE_IDLE || state == STATE_READY);
-    EnableWindow(ui->hwndEditInterval, state == STATE_IDLE || state == STATE_READY);
-    EnableWindow(ui->hwndComboPreset,  state == STATE_IDLE || state == STATE_READY);
-
-    SetWindowTextW(ui->hwndBtnPause, state == STATE_PAUSED ? L"继续" : L"暂停");
+    EnableWindow(ui->hwndBtnLoad,      state == STATE_IDLE);
+    EnableWindow(ui->hwndBtnDatabase,  TRUE);
+    EnableWindow(ui->hwndTrackbar,     state == STATE_IDLE);
+    EnableWindow(ui->hwndEditInterval, state == STATE_IDLE);
+    EnableWindow(ui->hwndComboPreset,  state == STATE_IDLE);
+    EnableWindow(ui->hwndChkUsePanel,  state == STATE_IDLE);
 
     // 强制重绘按钮（状态切换后颜色更新）
     for (int i = 0; i < ui->btnCount; i++)

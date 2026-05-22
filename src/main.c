@@ -35,25 +35,57 @@ static BOOL g_syncingInterval = FALSE;
 
 static wchar_t* GetClipboardText(void);  // 前向声明
 static void SetState(int newState);       // 前向声明
+static int  GetCurrentDelay(void);        // 前向声明
 
-static void StartTypingFromClipboard(void)
+// 停止输入（ESC 热键调用）
+static void StopInput(void)
+{
+    if (!g_worker) return;
+    Worker_Stop(g_worker);
+    if (g_hThread) {
+        WaitForSingleObject(g_hThread, 3000);
+        CloseHandle(g_hThread);
+        g_hThread = NULL;
+    }
+    Worker_Free(g_worker);
+    g_worker = NULL;
+    SetState(STATE_IDLE);
+    UI_UpdateProgress(&g_ui, 0, 0);
+}
+
+// 开始输入（根据复选框选择数据源）
+static void StartInput(void)
 {
     if (g_state != STATE_IDLE) return;
 
-    wchar_t *clipText = GetClipboardText();
-    if (!clipText || wcslen(clipText) == 0) {
+    wchar_t *text = NULL;
+    int textLen = 0;
+
+    BOOL usePanel = (SendMessageW(g_ui.hwndChkUsePanel, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    if (usePanel) {
+        // 从文本框读取
+        textLen = GetWindowTextLengthW(g_ui.hwndEditText);
+        if (textLen == 0) {
+            UI_SetStatus(&g_ui, L"文本框为空！");
+            return;
+        }
+        text = (wchar_t *)HeapAlloc(GetProcessHeap(), 0, (textLen + 1) * sizeof(wchar_t));
+        if (!text) return;
+        GetWindowTextW(g_ui.hwndEditText, text, textLen + 1);
+    } else {
+        // 从剪切板读取
+        wchar_t *clipText = GetClipboardText();
+        if (!clipText || wcslen(clipText) == 0) {
+            free(clipText);
+            UI_SetStatus(&g_ui, L"剪切板为空！");
+            return;
+        }
+        textLen = (int)wcslen(clipText);
+        text = (wchar_t *)HeapAlloc(GetProcessHeap(), 0, (textLen + 1) * sizeof(wchar_t));
+        if (!text) { free(clipText); return; }
+        wcscpy(text, clipText);
         free(clipText);
-        return;
     }
-
-    int textLen = (int)wcslen(clipText);
-
-    // 转为 HeapAlloc（Worker_Free 用 HeapFree 释放，不能用 malloc 的内存）
-    wchar_t *text = (wchar_t *)HeapAlloc(GetProcessHeap(), 0,
-                                          (textLen + 1) * sizeof(wchar_t));
-    if (!text) { free(clipText); return; }
-    wcscpy(text, clipText);
-    free(clipText);
 
     g_worker = (WorkerParams *)HeapAlloc(GetProcessHeap(),
                                           HEAP_ZERO_MEMORY, sizeof(WorkerParams));
@@ -61,7 +93,7 @@ static void StartTypingFromClipboard(void)
 
     g_worker->text      = text;
     g_worker->textLen   = textLen;
-    g_worker->delayMs   = g_cfg.delayMs;
+    g_worker->delayMs   = GetCurrentDelay();
     g_worker->hwndMain  = g_ui.hwndMain;
 
     g_hThread = Worker_Start(g_worker);
@@ -71,6 +103,7 @@ static void StartTypingFromClipboard(void)
         return;
     }
 
+    UI_UpdateProgress(&g_ui, 0, textLen);
     SetState(STATE_RUNNING);
 }
 
@@ -199,11 +232,8 @@ static void SetState(int newState)
     case STATE_IDLE:
         UI_SetStatus(&g_ui, L"就绪");
         break;
-    case STATE_READY:
-        UI_SetStatus(&g_ui, L"请将光标定位到目标输入框，然后点击\"开始输入\"");
-        break;
     case STATE_RUNNING:
-        UI_SetStatus(&g_ui, L"正在输入…");
+        UI_SetStatus(&g_ui, L"正在输入…  Ctrl+Alt+S 停止");
         break;
     case STATE_PAUSED:
         UI_SetStatus(&g_ui, L"已暂停");
@@ -308,84 +338,6 @@ static void OnBtnLoad(void)
     }
 }
 
-static void OnBtnPrepare(void)
-{
-    int textLen = GetWindowTextLengthW(g_ui.hwndEditText);
-    if (textLen == 0) {
-        MessageBoxW(g_ui.hwndMain,
-            L"请先在文本框中输入或加载文字。",
-            L"提示", MB_ICONINFORMATION);
-        return;
-    }
-    SetState(STATE_READY);
-    MessageBoxW(g_ui.hwndMain,
-        L"请将鼠标光标点击到目标输入框（如浏览器输入框），\n"
-        L"然后回到本程序点击\"开始输入\"。\n\n"
-        L"也可以使用全局热键 Ctrl+Alt+V 直接开始。",
-        L"准备输入", MB_ICONINFORMATION);
-}
-
-static void StartTyping(void)
-{
-    if (g_state != STATE_READY) return;
-
-    int textLen = GetWindowTextLengthW(g_ui.hwndEditText);
-    if (textLen == 0) {
-        SetState(STATE_IDLE);
-        return;
-    }
-
-    wchar_t *buf = (wchar_t *)HeapAlloc(GetProcessHeap(), 0,
-                                         (textLen + 1) * sizeof(wchar_t));
-    if (!buf) return;
-    GetWindowTextW(g_ui.hwndEditText, buf, textLen + 1);
-
-    g_worker = (WorkerParams *)HeapAlloc(GetProcessHeap(),
-                                          HEAP_ZERO_MEMORY, sizeof(WorkerParams));
-    if (!g_worker) { HeapFree(GetProcessHeap(), 0, buf); return; }
-
-    g_worker->text      = buf;
-    g_worker->textLen   = textLen;
-    g_worker->delayMs   = GetCurrentDelay();
-    g_worker->hwndMain  = g_ui.hwndMain;
-
-    g_hThread = Worker_Start(g_worker);
-    if (!g_hThread) {
-        Worker_Free(g_worker);
-        g_worker = NULL;
-        return;
-    }
-
-    UI_UpdateProgress(&g_ui, 0, textLen);
-    SetState(STATE_RUNNING);
-}
-
-static void OnBtnPause(void)
-{
-    if (g_state == STATE_RUNNING) {
-        Worker_Pause(g_worker);
-        SetState(STATE_PAUSED);
-    } else if (g_state == STATE_PAUSED) {
-        Worker_Resume(g_worker);
-        SetState(STATE_RUNNING);
-    }
-}
-
-static void OnBtnStop(void)
-{
-    if (!g_worker) return;
-    Worker_Stop(g_worker);
-    // 等待线程退出（最多3秒）
-    if (g_hThread) {
-        WaitForSingleObject(g_hThread, 3000);
-        CloseHandle(g_hThread);
-        g_hThread = NULL;
-    }
-    Worker_Free(g_worker);
-    g_worker = NULL;
-    SetState(STATE_IDLE);
-    UI_UpdateProgress(&g_ui, 0, 0);
-}
 
 static void OnWorkerDone(BOOL stopped)
 {
@@ -457,6 +409,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         UI_SetPresetSelection(&g_ui, g_cfg.delayMs);
         RegisterHotKey(hwnd, HOTKEY_START, MOD_CONTROL | MOD_ALT, 'V');
         RegisterHotKey(hwnd, HOTKEY_SEARCH, MOD_CONTROL | MOD_ALT, 'B');
+        RegisterHotKey(hwnd, HOTKEY_STOP, MOD_CONTROL | MOD_ALT, 'S');
         SendMessageW(g_ui.hwndChkTopmost, BM_SETCHECK,
             g_cfg.alwaysOnTop ? BST_CHECKED : BST_UNCHECKED, 0);
         if (g_cfg.alwaysOnTop)
@@ -499,13 +452,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
     case WM_HOTKEY:
         if (wParam == HOTKEY_START) {
-            if (g_state == STATE_IDLE) {
-                StartTypingFromClipboard();
-            } else if (g_state == STATE_READY) {
-                StartTyping();
-            }
+            StartInput();
         } else if (wParam == HOTKEY_SEARCH) {
             SearchFromClipboard();
+        } else if (wParam == HOTKEY_STOP) {
+            StopInput();
         }
         return 0;
 
@@ -525,10 +476,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
 
         if (id == IDC_BTN_LOAD)    { OnBtnLoad();    return 0; }
-        if (id == IDC_BTN_PREPARE) { OnBtnPrepare(); return 0; }
-        if (id == IDC_BTN_START)   { StartTyping();  return 0; }
-        if (id == IDC_BTN_PAUSE)   { OnBtnPause();   return 0; }
-        if (id == IDC_BTN_STOP)    { OnBtnStop();    return 0; }
         if (id == IDC_BTN_DATABASE) { OnBtnDatabase(); return 0; }
         if (id == IDC_CHK_TOPMOST && code == BN_CLICKED) {
             BOOL checked = (SendMessageW(g_ui.hwndChkTopmost, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -581,6 +528,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_DESTROY:
         UnregisterHotKey(hwnd, HOTKEY_START);
         UnregisterHotKey(hwnd, HOTKEY_SEARCH);
+        UnregisterHotKey(hwnd, HOTKEY_STOP);
         // 移除托盘图标
         {
             NOTIFYICONDATAW nid = {0};
@@ -657,7 +605,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     HWND hwnd = CreateWindowExW(
         WS_EX_APPWINDOW,
         L"KeyboardSimClass",
-        L"鲍小新写字  v3.0",
+        L"鲍小新写字  v3.1",
         WS_OVERLAPPEDWINDOW,
         x, y, winW, winH,
         NULL, NULL, hInstance, NULL);

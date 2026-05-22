@@ -1,63 +1,105 @@
-# 模拟键盘输入工具
+# BaoXiaoXin Writer (鲍小新写字)
 
-> 纯 C + Win32 API 桌面小工具，把文本逐字符模拟键盘发送到任意输入框，绕过"禁止粘贴"限制，完整支持中文。
+> A tiny Win32 desktop tool that simulates keyboard input character-by-character — bypasses "paste disabled" restrictions everywhere. Full Unicode / Chinese support.
 
 ---
 
-## 功能特性
+## Features
 
-- **逐字符模拟输入** — 使用 `SendInput + KEYEVENTF_UNICODE`，原生支持中文及所有 Unicode 字符
-- **从文件加载** — 支持 `.txt` / `.md` 等文本文件，自动识别 UTF-8 / UTF-16 编码
-- **可调速度** — 慢速 300ms / 中速 80ms / 快速 20ms 预设，也可手动输入任意间隔（10~500ms）
-- **暂停 / 继续 / 停止** — 随时中断，不影响主界面响应
-- **实时进度** — 进度条 + 已输入字符数显示
-- **全局热键** — `Ctrl+Alt+V` 直接触发开始
-- **配置持久化** — 上次速度设置自动保存，下次启动恢复
-- **线程隔离** — 输入模拟在独立工作线程，UI 不卡顿
+- **Simulate typing** — `SendInput + KEYEVENTF_UNICODE`, works in any app, full Unicode
+- **Load from file** — `.txt` / `.md` / `.csv`, auto-detects UTF-8 / UTF-16 / UTF-16BE
+- **Adjustable speed** — Slow (300ms) / Medium (80ms) / Fast (20ms) presets, or 10~500ms manual
+- **Global hotkeys** — `Ctrl+Alt+V` start typing, `Ctrl+Alt+B` search answer, `Ctrl+Alt+S` stop
+- **QA database** — Built-in SQLite-powered Q&A manager, fuzzy search supported
+- **Fuzzy search** — Case-insensitive substring matching (toggle on/off in GUI)
+- **Tray mode** — Minimizes to system tray; hotkeys work globally in background
+- **Non-blocking** — Typing runs in a worker thread, UI stays responsive
 
-## 截图
+## Screenshots
 
-![主界面](screenshot1.png)
+![Main UI](screenshot1.png)
 
-![数据库功能](screenshot2.png)
+![QA Database](screenshot2.png)
 
-## 使用方法
+---
 
-1. 运行 `KeyboardSim.exe`
-2. 在左侧文本框粘贴或输入文字，或点击 **从文件加载**
-3. 右侧调节字符间隔（默认 80ms，网站有反爬时建议调高到 150ms+）
-4. 点击 **准备输入** — 弹出提示后，将鼠标光标点进目标输入框
-5. 点击 **开始输入**（或按 `Ctrl+Alt+V`）
-6. 需要中断时点 **暂停** 或 **停止**
+## Quick Start (Noob-Friendly)
 
-> **注意**：部分需要管理员权限的程序（如 UAC 弹窗）需以管理员身份运行本工具才能模拟输入。
+### Step 1 — Download
 
-## 下载
+Go to the [Releases](../../releases) page and download **both files** from the latest release:
 
-前往 [Releases](../../releases) 页面下载最新版 `KeyboardSim.exe`，无需安装，双击即用。
+| File | Why |
+|------|-----|
+| `KeyboardSim.exe` | The app itself |
+| `sqlite3.dll` | Required for the QA database feature |
 
-## 从源码编译
+> **Put both files in the SAME folder.** If `sqlite3.dll` is missing, the database button won't work (typing still works fine).
 
-**依赖**：MinGW（gcc 6.3+）
+Double-click `KeyboardSim.exe` to run. No installer needed.
+
+### Step 2 — Type something (the easy way)
+
+1. **Copy** any text to clipboard (Ctrl+C)
+2. Press **`Ctrl+Alt+V`** — the app starts typing it into wherever your cursor is
+3. To stop, press **`Ctrl+Alt+S`**
+
+That's it. You don't even need to open the window.
+
+### Step 3 — Open the window (if you want)
+
+Right-click the tray icon → "打开主窗口". The window lets you:
+
+- **From file**: load a `.txt` file into the text box
+- **Speed**: adjust typing speed (slower = fewer rate-limit issues)
+- **"从面板读取"** checkbox: check it → `Ctrl+Alt+V` reads from the text box instead of clipboard
+- **QA Database**: search & manage Q&A pairs
+- **Fuzzy search**: toggle on for inexact matching
+
+### Step 4 — QA Database (clipboard search)
+
+1. Copy a question to clipboard (Ctrl+C)
+2. Press **`Ctrl+Alt+B`** — the app searches the database
+3. **Window visible** → answer pasted into the text box
+4. **Window hidden** → answer copied directly to your clipboard, ready to paste
+
+---
+
+## Hotkeys Summary
+
+| Hotkey | Action |
+|--------|--------|
+| `Ctrl+Alt+V` | Start typing (clipboard or text box, depending on checkbox) |
+| `Ctrl+Alt+B` | Search clipboard question in database |
+| `Ctrl+Alt+S` | Stop typing immediately |
+
+> **Admin rights**: Some programs (e.g. UAC prompts) require running this tool as administrator for SendInput to work.
+
+---
+
+## Build from Source
+
+**Requires**: MinGW (gcc 6.3+)
 
 ```bat
-git clone https://github.com/shenyuhao1/cc-project.git
-cd cc-project
-build.bat
+git clone https://github.com/shenyuhao1/baoxiaoxin-writer.git
+cd baoxiaoxin-writer
+gcc -mwindows -O2 -s -o KeyboardSim.exe src/main.c src/ui.c src/worker.c src/database.c src/qa_ui.c src/config.c -lcomctl32 -luxtheme -lcomdlg32 -lgdi32 -lshell32
 ```
 
-编译产物为 `KeyboardSim.exe`，体积约 66KB，无外部 DLL 依赖。
+Output: `KeyboardSim.exe` (~58 KB). Requires `sqlite3.dll` at runtime for database features.
 
-## 技术栈
+## Tech Stack
 
-| 模块 | 方案 |
-|------|------|
+| Module | Implementation |
+|--------|---------------|
 | GUI | Win32 API + ComCtl32 v6 |
-| 键盘模拟 | `SendInput` + `KEYEVENTF_UNICODE` |
-| 中文支持 | 直接发送 `wchar_t`，不依赖输入法 |
-| 线程 | `_beginthreadex` + `CRITICAL_SECTION` + Event |
-| 配置 | INI 文件（`%APPDATA%\KeyboardSim\config.ini`） |
-| 编译 | MinGW gcc，纯 C，无第三方库 |
+| Keyboard simulation | `SendInput` + `KEYEVENTF_UNICODE` |
+| Unicode | Direct `wchar_t` injection, no IME |
+| Threading | `_beginthreadex` + `CRITICAL_SECTION` + Event |
+| Config | INI file (`%APPDATA%\KeyboardSim\config.ini`) |
+| Database | SQLite (dynamic loading via `LoadLibrary`) |
+| Build | MinGW gcc, pure C, zero third-party libs |
 
 ## License
 
